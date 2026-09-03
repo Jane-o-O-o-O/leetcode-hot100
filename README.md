@@ -6,13 +6,13 @@
 
 | 系统 | 方式 |
 |---|---|
-| macOS | 双击 `一键启动(MACOS).command`（首次如被拦截：系统设置 → 隐私与安全性 → 仍要打开） |
+| macOS | 双击 `一键启动(MACOS).command`（自动识别 Apple Silicon / Intel Homebrew；首次如被拦截：系统设置 → 隐私与安全性 → 仍要打开） |
 | Windows | 双击 `一键启动（WIN）.bat` |
 | Linux / 终端 | `bash start.sh` |
 
 脚本会自动选择空闲端口（8931 起）、启动本地服务器并打开浏览器。停止：按 `Ctrl+C` 或关闭窗口。
 
-要求：电脑上装有 **Python 3** 或 **Node.js** 之一（macOS 自带 Python 3；Windows 需自行安装其一）。
+要求：电脑上装有 **Node.js** 或 **Python 3.8+** 之一。macOS 推荐 Node.js：启动器会优先使用带 ETag 缓存与流式传输的内置服务器，没有 Node 时自动回退 Python。
 
 > 注意：不能直接双击 `index.html` 打开——浏览器的 ES Module 和 Worker 在 `file://` 协议下无法工作，必须通过上面的本地服务器访问。
 
@@ -57,7 +57,7 @@
 npm test   # manifest 检查 + 单元测试 + 100 题六套参考答案全量校验
 ```
 
-全量校验需要本机有 `python3`（校验 Python 参考代码）和 `g++`（校验 C++ 参考代码；缺失时 C++ 校验自动跳过并打印警告）。
+全量校验会自动探测 `python3` / `python`（校验 Python 参考代码）以及 `g++` / `clang++` / `c++`（校验 C++ 参考代码，兼容 Xcode Command Line Tools）；缺失的运行时会自动跳过并打印警告。
 
 ## 免责声明
 

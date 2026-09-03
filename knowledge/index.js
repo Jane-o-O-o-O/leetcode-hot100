@@ -32,6 +32,10 @@ const articleLoaders = new Map([
   ["bit-tricks", () => import('./bit-tricks.js')],
 ]);
 
+export function hasArticle(slug) {
+  return articleLoaders.has(slug);
+}
+
 export async function loadArticle(slug) {
   const loader = articleLoaders.get(slug);
   if (!loader) throw new Error(`知识文章不存在: ${slug}`);

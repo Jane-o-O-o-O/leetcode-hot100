@@ -1,7 +1,7 @@
 // 入口：hash 路由 + 全局主题切换
 
-import { articles, loadArticle } from '../knowledge/index.js';
-import { loadProblem, problems } from '../problems/index.js';
+import { hasArticle, loadArticle } from '../knowledge/index.js';
+import { hasProblem, loadProblem } from '../problems/index.js';
 import { getThemePref, setThemePref } from './store.js';
 import { setAssistantContext } from './assistant.js';
 import { initAssistant } from './views/assistant.js';
@@ -116,7 +116,7 @@ async function route() {
     const knowledgeMatch = hash.match(/^#\/knowledge\/([a-z0-9-]+)$/);
     if (knowledgeMatch) {
       const slug = knowledgeMatch[1];
-      if (!articles.some((article) => article.slug === slug)) {
+      if (!hasArticle(slug)) {
         commitMessage(sequence, `页面未找到 · ${BASE_TITLE}`, '404', '没有找到这篇知识文章');
         return;
       }
@@ -132,7 +132,7 @@ async function route() {
     const problemMatch = hash.match(/^#\/problem\/(\d+)$/);
     if (problemMatch) {
       const id = Number(problemMatch[1]);
-      if (!problems.some((problem) => problem.id === id)) {
+      if (!hasProblem(id)) {
         commitMessage(sequence, `页面未找到 · ${BASE_TITLE}`, '404', '没有找到这道题目');
         return;
       }

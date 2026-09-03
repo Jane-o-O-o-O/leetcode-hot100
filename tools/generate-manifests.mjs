@@ -59,6 +59,10 @@ function compact(value) {
   return JSON.stringify(value);
 }
 
+function normalizeLineEndings(value) {
+  return value.replace(/\r\n/g, '\n');
+}
+
 function problemSource(entries) {
   const sorted = [...entries].sort((a, b) => a.value.id - b.value.id || byFileName(a, b));
   assertUnique(sorted, 'id', '题号');
@@ -71,7 +75,7 @@ function problemSource(entries) {
     tags: value.tags,
   }));
   const tags = [...new Set(metadata.flatMap((problem) => problem.tags))].sort();
-  return `// 题目轻量索引（由 tools/generate-manifests.mjs 生成，请勿手改）\n\nexport const problems = [\n${metadata.map((item) => `  ${compact(item)},`).join('\n')}\n];\n\nexport const allTags = ${compact(tags)};\n\nconst problemLoaders = new Map([\n${sorted.map(({ file, value }) => `  [${value.id}, () => import('${file}')],`).join('\n')}\n]);\n\nexport async function loadProblem(id) {\n  const numericId = Number(id);\n  const loader = problemLoaders.get(numericId);\n  if (!loader) throw new Error(\`题目不存在: \${id}\`);\n  return (await loader()).default;\n}\n`;
+  return `// 题目轻量索引（由 tools/generate-manifests.mjs 生成，请勿手改）\n\nexport const problems = [\n${metadata.map((item) => `  ${compact(item)},`).join('\n')}\n];\n\nexport const allTags = ${compact(tags)};\n\nconst problemLoaders = new Map([\n${sorted.map(({ file, value }) => `  [${value.id}, () => import('${file}')],`).join('\n')}\n]);\n\nexport function hasProblem(id) {\n  return problemLoaders.has(Number(id));\n}\n\nexport async function loadProblem(id) {\n  const numericId = Number(id);\n  const loader = problemLoaders.get(numericId);\n  if (!loader) throw new Error(\`题目不存在: \${id}\`);\n  return (await loader()).default;\n}\n`;
 }
 
 function articleSource(entries) {
@@ -91,7 +95,7 @@ function articleSource(entries) {
     if (Array.isArray(value.relatedProblems)) item.relatedProblems = value.relatedProblems;
     return item;
   });
-  return `// 知识文章轻量索引（由 tools/generate-manifests.mjs 生成，请勿手改）\n\nexport const articles = [\n${metadata.map((item) => `  ${compact(item)},`).join('\n')}\n];\n\nconst articleLoaders = new Map([\n${sorted.map(({ file, value }) => `  [${compact(value.slug)}, () => import('${file}')],`).join('\n')}\n]);\n\nexport async function loadArticle(slug) {\n  const loader = articleLoaders.get(slug);\n  if (!loader) throw new Error(\`知识文章不存在: \${slug}\`);\n  return (await loader()).default;\n}\n`;
+  return `// 知识文章轻量索引（由 tools/generate-manifests.mjs 生成，请勿手改）\n\nexport const articles = [\n${metadata.map((item) => `  ${compact(item)},`).join('\n')}\n];\n\nconst articleLoaders = new Map([\n${sorted.map(({ file, value }) => `  [${compact(value.slug)}, () => import('${file}')],`).join('\n')}\n]);\n\nexport function hasArticle(slug) {\n  return articleLoaders.has(slug);\n}\n\nexport async function loadArticle(slug) {\n  const loader = articleLoaders.get(slug);\n  if (!loader) throw new Error(\`知识文章不存在: \${slug}\`);\n  return (await loader()).default;\n}\n`;
 }
 
 async function update(path, expected) {
@@ -101,7 +105,9 @@ async function update(path, expected) {
   } catch (error) {
     if (error.code !== 'ENOENT') throw error;
   }
-  if (current === expected) return false;
+  // Git 在 Windows 上通常会把检出的 LF 转成 CRLF。生成内容本身未变时，
+  // 不应因此让 `npm test` 误报清单过期。
+  if (normalizeLineEndings(current) === normalizeLineEndings(expected)) return false;
   if (checkOnly) {
     console.error(`${relative(root, path)} 不是最新生成结果`);
     process.exitCode = 1;

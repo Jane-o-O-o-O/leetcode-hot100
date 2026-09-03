@@ -6,7 +6,7 @@
 // 校验内容：
 // 1. 数据格式完整性（必填字段、用例非空、两种模式 × 三种语言的模板与答案）
 // 2. 六套参考代码（core/acm × javascript/python/cpp）全部跑通自己的测试用例
-//    - JS 在 node 内直接执行；Python 调用本机 python3；C++ 调用本机 g++（缺失时跳过并告警）
+//    - JS 在 node 内直接执行；Python 自动探测 python3/python；C++ 自动探测 g++/clang++/c++
 
 import { readdir } from 'node:fs/promises';
 import { basename, dirname, resolve, join } from 'node:path';
@@ -24,6 +24,15 @@ const CORE_CASE_BASELINE = 960;
 const ACM_CASE_BASELINE = 960;
 
 const TIMEOUT_MS = 10000;
+
+const pythonRuntime = (() => {
+  for (const command of ['python3', 'python']) {
+    const result = spawnSync(command, ['--version'], { encoding: 'utf8', timeout: TIMEOUT_MS });
+    const version = `${result.stdout || ''}${result.stderr || ''}`;
+    if (!result.error && result.status === 0 && /^Python 3\./.test(version.trim())) return command;
+  }
+  return null;
+})();
 
 // ---------- 链表/二叉树构造与序列化（与 js/judge.js 中的判定逻辑保持一致） ----------
 
@@ -467,22 +476,22 @@ function runPythonCore(p) {
     design: !!p.design,
     className: p.className || null,
   });
-  const r = spawnSync('python3', ['-c', PY_RUNNER], {
+  const r = spawnSync(pythonRuntime, ['-X', 'utf8', '-c', PY_RUNNER], {
     input: payload,
     encoding: 'utf8',
     timeout: TIMEOUT_MS,
   });
-  if (r.error) return { compileError: 'python3 执行失败: ' + r.error.message };
-  if (r.status !== 0) return { compileError: 'python3 异常退出: ' + (r.stderr || '').slice(0, 500) };
+  if (r.error) return { compileError: `${pythonRuntime} 执行失败: ${r.error.message}` };
+  if (r.status !== 0) return { compileError: `${pythonRuntime} 异常退出: ${(r.stderr || '').slice(0, 500)}` };
   try {
     return JSON.parse(r.stdout.trim().split('\n').pop());
   } catch {
-    return { compileError: 'python3 输出无法解析: ' + r.stdout.slice(0, 300) + ' ' + (r.stderr || '').slice(0, 300) };
+    return { compileError: `${pythonRuntime} 输出无法解析: ${r.stdout.slice(0, 300)} ${(r.stderr || '').slice(0, 300)}` };
   }
 }
 
 function runPythonAcm(code, input) {
-  const r = spawnSync('python3', ['-c', code], {
+  const r = spawnSync(pythonRuntime, ['-X', 'utf8', '-c', code], {
     input,
     encoding: 'utf8',
     timeout: TIMEOUT_MS,
@@ -492,11 +501,14 @@ function runPythonAcm(code, input) {
   return { ok: true, stdout: r.stdout };
 }
 
-// ---------- C++ 本地编译运行（g++，缺失时跳过并告警） ----------
+// ---------- C++ 本地编译运行（兼容 GNU 与 macOS/Xcode Clang） ----------
 
-const hasGxx = (() => {
-  const r = spawnSync('g++', ['--version'], { encoding: 'utf8' });
-  return !r.error && r.status === 0;
+const cppCompiler = (() => {
+  for (const command of ['g++', 'clang++', 'c++']) {
+    const result = spawnSync(command, ['--version'], { encoding: 'utf8', timeout: TIMEOUT_MS });
+    if (!result.error && result.status === 0) return command;
+  }
+  return null;
 })();
 
 let cppTmpDir = null;
@@ -506,7 +518,7 @@ function cppCompile(source, tag) {
   if (!cppTmpDir) cppTmpDir = mkdtempSync(join(tmpdir(), 'letcode-cpp-'));
   const base = join(cppTmpDir, tag.replace(/[^a-zA-Z0-9_-]/g, '_'));
   writeFileSync(`${base}.cpp`, source);
-  const r = spawnSync('g++', ['-std=c++17', '-O2', `${base}.cpp`, '-o', base], { encoding: 'utf8', timeout: 120000 });
+  const r = spawnSync(cppCompiler, ['-std=c++17', '-O2', `${base}.cpp`, '-o', base], { encoding: 'utf8', timeout: 120000 });
   if (r.error) return { compileError: r.error.message };
   if (r.status !== 0) return { compileError: (r.stderr || '编译失败').slice(0, 800) };
   return { binary: base };
@@ -514,7 +526,7 @@ function cppCompile(source, tag) {
 
 // 仅语法检查（模板用，快）
 function cppSyntaxCheck(source) {
-  const r = spawnSync('g++', ['-std=c++17', '-fsyntax-only', '-x', 'c++', '-'], {
+  const r = spawnSync(cppCompiler, ['-std=c++17', '-fsyntax-only', '-x', 'c++', '-'], {
     input: source,
     encoding: 'utf8',
     timeout: TIMEOUT_MS,
@@ -663,6 +675,7 @@ function checkJsAcm(p) {
 }
 
 function checkPyCore(p) {
+  if (!pythonRuntime) return;
   const raw = runPythonCore(p);
   if (raw.compileError) {
     fail(p, `core/python 编译失败: ${raw.compileError}`);
@@ -679,6 +692,7 @@ function checkPyCore(p) {
 }
 
 function checkPyAcm(p) {
+  if (!pythonRuntime) return;
   p.acmTests.forEach((t, i) => {
     const r = runPythonAcm(p.solutions.acm.python, t.input);
     if (!r.ok) {
@@ -690,7 +704,7 @@ function checkPyAcm(p) {
 }
 
 function checkCppCore(p) {
-  if (!hasGxx || typeof p.solutions?.core?.cpp !== 'string') return;
+  if (!cppCompiler || typeof p.solutions?.core?.cpp !== 'string') return;
   const { binary, compileError } = cppCompile(cppCoreSource(p, p.solutions.core.cpp), `p${p.id}-core`);
   if (compileError) {
     fail(p, `core/cpp 编译失败: ${compileError}`);
@@ -715,7 +729,7 @@ function checkCppCore(p) {
 }
 
 function checkCppAcm(p) {
-  if (!hasGxx || typeof p.solutions?.acm?.cpp !== 'string') return;
+  if (!cppCompiler || typeof p.solutions?.acm?.cpp !== 'string') return;
   const { binary, compileError } = cppCompile(p.solutions.acm.cpp, `p${p.id}-acm`);
   if (compileError) {
     fail(p, `acm/cpp 编译失败: ${compileError}`);
@@ -738,12 +752,14 @@ function checkTemplateSyntax(p) {
     } catch (e) {
       fail(p, `模板 templates.${mode}.javascript 语法错误: ${e.message}`);
     }
-    const r = spawnSync('python3', ['-c', `compile(${JSON.stringify(p.templates[mode].python)}, '<t>', 'exec')`], {
-      encoding: 'utf8',
-      timeout: TIMEOUT_MS,
-    });
-    if (r.status !== 0) fail(p, `模板 templates.${mode}.python 语法错误: ${(r.stderr || '').slice(0, 300)}`);
-    if (hasGxx && typeof p.templates?.[mode]?.cpp === 'string') {
+    if (pythonRuntime) {
+      const r = spawnSync(pythonRuntime, ['-X', 'utf8', '-c', `compile(${JSON.stringify(p.templates[mode].python)}, '<t>', 'exec')`], {
+        encoding: 'utf8',
+        timeout: TIMEOUT_MS,
+      });
+      if (r.status !== 0) fail(p, `模板 templates.${mode}.python 语法错误: ${(r.stderr || '').slice(0, 300)}`);
+    }
+    if (cppCompiler && typeof p.templates?.[mode]?.cpp === 'string') {
       // core 模板需拼上判题 preamble 才有 ListNode/TreeNode 等定义；ACM 模板是完整程序
       const source = mode === 'core' ? cppCoreSource(p, p.templates.core.cpp) : p.templates.acm.cpp;
       const syntaxError = cppSyntaxCheck(source);
@@ -831,10 +847,10 @@ function checkRunnableExamples(article, file, exampleOwners) {
       } catch (error) {
         globalFail(`${basename(file)} 运行示例 ${exampleId} 失败: ${error.message}`);
       }
-    } else if (language === 'python') {
-      const result = spawnSync('python3', ['-c', match[3]], { encoding: 'utf8', timeout: TIMEOUT_MS });
+    } else if (language === 'python' && pythonRuntime) {
+      const result = spawnSync(pythonRuntime, ['-X', 'utf8', '-c', match[3]], { encoding: 'utf8', timeout: TIMEOUT_MS });
       if (result.error || result.status !== 0) globalFail(`${basename(file)} 运行示例 ${exampleId} 失败: ${result.error?.message || result.stderr.slice(0, 300)}`);
-    } else if (hasGxx) {
+    } else if (cppCompiler) {
       const { binary, compileError } = cppCompile(match[3], `k-${exampleId}`);
       if (compileError) {
         globalFail(`${basename(file)} 运行示例 ${exampleId} 编译失败: ${compileError}`);
@@ -904,7 +920,8 @@ async function main() {
     console.log('没有可校验的题目');
     return;
   }
-  if (!hasGxx) notes.push('警告：未找到 g++，C++ 参考代码与模板跳过编译执行校验（仅做数据格式校验）');
+  if (!pythonRuntime) notes.push('警告：未找到 Python 3，Python 参考代码与模板跳过执行校验（仅做数据格式校验）');
+  if (!cppCompiler) notes.push('警告：未找到 g++ / clang++ / c++，C++ 参考代码与模板跳过编译执行校验（仅做数据格式校验）');
   for (const { problem, file } of entries) {
     checkSchema(problem, file);
     checkTemplateSyntax(problem);

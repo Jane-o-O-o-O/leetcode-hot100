@@ -4,8 +4,7 @@ import { problems, allTags } from '../../problems/index.js';
 import {
   getProgress,
   getLearningState,
-  problemStatus,
-  isMistake,
+  getMistakes,
   exportAll,
   importAll,
   getListView,
@@ -105,8 +104,20 @@ export function renderList(container) {
 
   const progress = getProgress();
   const learning = getLearningState();
+  const mistakes = getMistakes();
   const now = Date.now();
   const total = problems.length;
+  // localStorage 是同步 API。列表重绘时不能为每一行重复读取、解析同一份 JSON；
+  // 进入页面时建立一次快照，后续筛选、分组与随机选题均做 O(1) 内存查询。
+  const statusById = new Map(problems.map((problem) => {
+    const modes = progress[problem.id];
+    let status = 'none';
+    if (modes?.core?.solved || modes?.acm?.solved) status = 'solved';
+    else if ((modes?.core?.attempts || 0) > 0 || (modes?.acm?.attempts || 0) > 0) status = 'attempted';
+    return [problem.id, status];
+  }));
+  const problemStatus = (id) => statusById.get(id) || 'none';
+  const isMistake = (id) => Boolean(mistakes[id]);
   const solvedCount = problems.filter((p) => problemStatus(p.id) === 'solved').length;
   const diffStats = DIFF_ORDER.map((d) => {
     const list = problems.filter((p) => p.difficulty === d);
@@ -393,10 +404,27 @@ export function renderList(container) {
     syncToggleGroupsBtn();
   }
 
+  let renderFrame = 0;
+  let filterSaveTimer = 0;
+  function scheduleRowsRender() {
+    if (renderFrame) cancelAnimationFrame(renderFrame);
+    renderFrame = requestAnimationFrame(() => {
+      renderFrame = 0;
+      renderRows();
+    });
+  }
+  function scheduleFilterPersist() {
+    clearTimeout(filterSaveTimer);
+    filterSaveTimer = setTimeout(() => {
+      filterSaveTimer = 0;
+      persistFilters();
+    }, 180);
+  }
+
   container.querySelector('#f-q').addEventListener('input', (e) => {
     state.q = e.target.value;
-    persistFilters();
-    renderRows();
+    scheduleFilterPersist();
+    scheduleRowsRender();
   });
   container.querySelector('#f-diff').addEventListener('change', (e) => {
     state.diff = e.target.value;
@@ -584,6 +612,9 @@ export function renderList(container) {
     location.hash = `#/problem/${row.dataset.pid}`;
   });
   return () => {
+    if (renderFrame) cancelAnimationFrame(renderFrame);
+    clearTimeout(filterSaveTimer);
+    if (filterSaveTimer) persistFilters();
     // 离开列表页时记录滚动位置，供返回时恢复。
     try {
       sessionStorage.setItem(LIST_SCROLL_KEY, String(window.scrollY || 0));

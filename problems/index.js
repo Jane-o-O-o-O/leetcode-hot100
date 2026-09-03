@@ -208,6 +208,10 @@ const problemLoaders = new Map([
   [1143, () => import('./p1143-longest-common-subsequence.js')],
 ]);
 
+export function hasProblem(id) {
+  return problemLoaders.has(Number(id));
+}
+
 export async function loadProblem(id) {
   const numericId = Number(id);
   const loader = problemLoaders.get(numericId);
