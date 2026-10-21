@@ -48,7 +48,7 @@ function detectLang(code) {
 function parseFenceInfo(block) {
   const nl = block.indexOf('\n');
   const firstLine = (nl === -1 ? block : block.slice(0, nl)).trim();
-  const match = firstLine.match(/^([a-zA-Z-]*)(?:#([a-z0-9][a-z0-9-]*))?$/);
+  const match = firstLine.match(/^([a-zA-Z+-]*)(?:#([a-z0-9][a-z0-9-]*))?$/);
   if (match) {
     return { info: match[1], exampleId: match[2] || '', code: nl === -1 ? '' : block.slice(nl + 1) };
   }
