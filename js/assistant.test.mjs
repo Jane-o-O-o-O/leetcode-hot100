@@ -128,6 +128,51 @@ test('SSE 解析：\\r\\n 行尾与非法 JSON 行跳过', () => {
   assert.equal(out, 'A');
 });
 
+test('SSE 解析：[DONE] 后忽略同批次与后续分片内容', () => {
+  let out = '';
+  const parser = assistant.createSseParser(delta => { out += delta; });
+  const token = content => `data: ${JSON.stringify({ choices: [{ delta: { content } }] })}\n`;
+  parser.feed(token('有效'));
+  parser.feed('data: [DO');
+  assert.equal(parser.done, false);
+  parser.feed(`NE]\r\n${token('忽略')}data: {`);
+  assert.equal(parser.done, true);
+  parser.feed(token('也忽略'));
+  parser.flush();
+  assert.equal(out, '有效');
+});
+
+test('SSE 解析：末行没有换行的 [DONE] 在 flush 时终止', () => {
+  const parser = assistant.createSseParser(() => assert.fail('不能输出结束后的内容'));
+  parser.feed('data: [DONE]');
+  parser.flush();
+  assert.equal(parser.done, true);
+  parser.feed('data: {"choices":[{"delta":{"content":"忽略"}}]}\n');
+  parser.flush();
+});
+
+test('chat：[DONE] 结束仍开放的响应流并释放读取锁', { timeout: 1000 }, async (t) => {
+  let cancelled = false;
+  const stream = new ReadableStream({
+    start(controller) {
+      controller.enqueue(new TextEncoder().encode(
+        'data: {"choices":[{"delta":{"content":"完成"}}]}\ndata: [DONE]\n',
+      ));
+    },
+    cancel() { cancelled = true; },
+  });
+  t.mock.method(globalThis, 'fetch', async () => new Response(stream));
+  let output = '';
+  await assistant.chat({
+    config: { preset: 'custom', baseUrl: 'https://example.test/v1', apiKey: 'synthetic', model: 'm' },
+    messages: [],
+    onToken: token => { output += token; },
+  });
+  assert.equal(output, '完成');
+  assert.equal(cancelled, true);
+  assert.equal(stream.locked, false);
+});
+
 test('chat：缺少配置时给出明确错误', async () => {
   await assert.rejects(
     assistant.chat({ config: { preset: 'custom', baseUrl: '', apiKey: '', model: '' }, messages: [] }),

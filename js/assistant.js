@@ -105,10 +105,15 @@ export function buildMessages({ question, context = null, draft = null, history:
 // 兼容跨 chunk 断行、`data: [DONE]`、空行与注释行。
 export function createSseParser(onDelta) {
   let buffer = '';
+  let done = false;
   const handleLine = (line) => {
-    if (!line.startsWith('data:')) return;
+    if (done || !line.startsWith('data:')) return;
     const payload = line.slice(5).trim();
-    if (!payload || payload === '[DONE]') return;
+    if (payload === '[DONE]') {
+      done = true;
+      return;
+    }
+    if (!payload) return;
     try {
       const json = JSON.parse(payload);
       for (const choice of json.choices || []) {
@@ -120,11 +125,19 @@ export function createSseParser(onDelta) {
     }
   };
   return {
+    get done() { return done; },
     feed(text) {
+      if (done) return;
       buffer += text;
       const lines = buffer.split('\n');
       buffer = lines.pop(); // 最后一段可能是不完整的行，留给下一次
-      for (const line of lines) handleLine(line.replace(/\r$/, ''));
+      for (const line of lines) {
+        handleLine(line.replace(/\r$/, ''));
+        if (done) {
+          buffer = '';
+          break;
+        }
+      }
     },
     flush() {
       if (buffer) {
@@ -193,10 +206,16 @@ export async function chat({ config, messages, signal, onToken }) {
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   const parser = createSseParser(onToken);
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    parser.feed(decoder.decode(value, { stream: true }));
+  try {
+    while (!parser.done) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      parser.feed(decoder.decode(value, { stream: true }));
+    }
+    parser.flush();
+  } finally {
+    // [DONE] ends the response even if the server keeps its HTTP stream open.
+    if (parser.done) await reader.cancel().catch(() => {});
+    reader.releaseLock();
   }
-  parser.flush();
 }
