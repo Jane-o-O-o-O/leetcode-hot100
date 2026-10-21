@@ -124,6 +124,7 @@ async function route() {
         import('./views/knowledgeDetail.js'),
         loadArticle(slug),
       ]);
+      if (sequence !== routeSequence) return;
       setAssistantContext({ kind: 'article', title: article.title, body: article.content });
       commitView(sequence, `${article.title} · ${BASE_TITLE}`, () => renderKnowledgeDetail(app, article));
       return;
@@ -140,6 +141,7 @@ async function route() {
         import('./views/problem.js'),
         loadProblem(id),
       ]);
+      if (sequence !== routeSequence) return;
       setAssistantContext({ kind: 'problem', title: `${problem.id}. ${problem.title}`, body: problem.description });
       commitView(sequence, `${problem.id}. ${problem.title} · ${BASE_TITLE}`, () => renderProblem(app, problem));
       return;
